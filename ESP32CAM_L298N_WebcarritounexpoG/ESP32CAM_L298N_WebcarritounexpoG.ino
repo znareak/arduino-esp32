@@ -28,6 +28,15 @@ WebSocketsClient webSocket;
 extern int speed;
 void WheelAct(int speed_R, int speed_L, int nLf, int nLb, int nRf, int nRb);
 
+// Pines globales (definidos aqui, usados tambien por app_httpd.cpp)
+extern int gpLb = 14; // Left 1
+extern int gpLf = 13; // Left 2
+extern int gpRb = 33; // Right 1
+extern int gpRf = 15; // Right 2
+extern int gpLed = 4; // Light
+extern int ENR = 2;
+extern int ENL = 12;
+
 #define LED   4
 #define RXD2 14
 #define TXD2 13
@@ -118,14 +127,6 @@ void webSocketEvent(WStype_t type, uint8_t* payload, size_t length) {
 
 WiFiServer server(100);
 
-
-extern int gpLb = 14; // Left 1
-extern int gpLf = 13; // Left 2
-extern int gpRb = 33; // Right 1
-extern int gpRf = 15; // Right 2
-extern int gpLed = 4; // Light
-extern int ENR = 2;
-extern int ENL = 12;
 
 void initMotors()
 {
