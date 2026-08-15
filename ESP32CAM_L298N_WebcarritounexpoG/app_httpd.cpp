@@ -244,7 +244,7 @@ static esp_err_t cmd_handler(httpd_req_t *req)
     //Don't use channel 1 and channel 2
     else if(!strcmp(variable, "flash")) 
     {
-      ledcWrite(7,val);
+      ledcWrite(gpLed,val);
     }  
     else if(!strcmp(variable, "speed")) 
     {

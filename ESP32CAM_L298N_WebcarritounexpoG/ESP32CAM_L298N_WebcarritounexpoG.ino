@@ -24,6 +24,10 @@ const char* WS_PATH = "/";
 WebSocketsClient webSocket;
 // =================================================================
 
+// Definidas en app_httpd.cpp (deben declararse ANTES de usarse en este archivo)
+extern int speed;
+void WheelAct(int speed_R, int speed_L, int nLf, int nLb, int nRf, int nRb);
+
 #define LED   4
 #define RXD2 14
 #define TXD2 13
@@ -86,7 +90,7 @@ void procesarComandoWS(char* payload, size_t length) {
   else if (strcmp(cmd, "derecha")   == 0) WheelAct(speed, speed, 0, 1, 1, 0);
   else if (strcmp(cmd, "parar")     == 0) WheelAct(0, 0, 0, 0, 0, 0);
   else if (strcmp(cmd, "velocidad") == 0) speed = constrain(val, 0, 255);
-  else if (strcmp(cmd, "luz")       == 0) ledcWrite(7, constrain(val, 0, 255));
+  else if (strcmp(cmd, "luz")       == 0) ledcWrite(gpLed, constrain(val, 0, 255));
   else {
     Serial.print("[WS] Comando desconocido: ");
     Serial.println(cmd);
@@ -123,9 +127,6 @@ extern int gpLed = 4; // Light
 extern int ENR = 2;
 extern int ENL = 12;
 
-extern int speed;  // definida en app_httpd.cpp
-void WheelAct(int speed_R, int speed_L, int nLf, int nLb, int nRf, int nRb);
-
 void initMotors()
 {
   pinMode(gpLb, OUTPUT); //Left Backward
@@ -136,10 +137,9 @@ void initMotors()
   pinMode(ENR, OUTPUT);
   pinMode(ENL, OUTPUT);
 
-  ledcSetup(2,5000,8);
-  ledcSetup(12,5000,8);
-  ledcAttachPin(ENR,2);
-  ledcAttachPin(ENL,12);
+  // API nueva de esp32 core 3.x: ledcAttachChannel(pin, freq, resolucion, canal)
+  ledcAttachChannel(ENR, 5000, 8, 2);   // motor derecho (canal 2)
+  ledcAttachChannel(ENL, 5000, 8, 12);  // motor izquierdo (canal 12)
   ledcWrite(ENR, 0);
   ledcWrite(ENL, 0);
   digitalWrite(gpLf, LOW);
@@ -162,16 +162,15 @@ void setup()
   // Remote Control Car
   initMotors();
 
-  ledcSetup(7, 5000, 8);
-  ledcAttachPin(gpLed, 7);  //pin4 is LED
+  ledcAttachChannel(gpLed, 5000, 8, 7);  //pin4 is LED (canal 7)
 
   server.begin();
 
   for (int i = 0; i < 5; i++) 
   {
-    ledcWrite(7, 10); // flash led
+    ledcWrite(gpLed, 10); // flash led
     delay(50);
-    ledcWrite(7, 0);
+    ledcWrite(gpLed, 0);
     delay(50);
   }
   pinMode(TRIG_PIN, OUTPUT);
@@ -180,7 +179,7 @@ void setup()
 
   // ---- Cliente WebSocket hacia Internet ----
   webSocket.beginSSL(WS_HOST, WS_PORT, WS_PATH);
-  webSocket.setInsecure();   // no valida certificado TLS (pruebas). En produccion usa setCACert(...)
+  // Sin fingerprint/CA, la libreria WebSockets ya desactiva la verificacion del certificado TLS
   webSocket.onEvent(webSocketEvent);
   webSocket.setReconnectInterval(5000);   // reintenta cada 5 s
   webSocket.enableHeartbeat(15000, 3000, 2);
