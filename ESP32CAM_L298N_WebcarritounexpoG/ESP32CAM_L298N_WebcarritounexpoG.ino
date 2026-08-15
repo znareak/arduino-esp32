@@ -18,8 +18,9 @@ const char* WS_HOST = "arduino.libardo-apps.es";
 const uint16_t WS_PORT = 443;   // puerto TLS estandar de wss:// (el backend Node corre en 3000 detras del proxy)
 const char* WS_PATH = "/";
 
-// 1 = tambien enviar frames de la camara por WebSocket (~2 fps, consume RAM/CPU)
-#define WS_ENVIAR_VIDEO 0
+// 1 = enviar frames de la camara por WebSocket (~2 fps, consume RAM/CPU)
+#define WS_ENVIAR_VIDEO 1
+#define WS_VIDEO_INTERVALO 500   // ms entre frames de video
 
 WebSocketsClient webSocket;
 // =================================================================
@@ -34,6 +35,9 @@ int ENR = 2;
 int ENL = 12;
 
 int speed = 255;          // velocidad PWM global (0-255)
+#if WS_ENVIAR_VIDEO
+bool videoActivo = true;  // streaming de video por WS (se controla con {"cmd":"video","val":0|1})
+#endif
 
 void CameraWebServer_init();   // definida en CameraWebServer.cpp (solo camara + WiFi)
 
@@ -88,6 +92,9 @@ void procesarComandoWS(char* payload, size_t length) {
   else if (strcmp(cmd, "parar")     == 0) { Serial.println("[WS] Ejecutando: PARAR");     WheelAct(0, 0, 0, 0, 0, 0); }
   else if (strcmp(cmd, "velocidad") == 0) { speed = constrain(val, 0, 255); Serial.printf("[WS] Velocidad ajustada a %d\n", speed); }
   else if (strcmp(cmd, "luz")       == 0) { ledcWrite(gpLed, constrain(val, 0, 255)); Serial.printf("[WS] Luz LED: %d\n", constrain(val, 0, 255)); }
+#if WS_ENVIAR_VIDEO
+  else if (strcmp(cmd, "video")     == 0) { videoActivo = (val != 0); Serial.printf("[WS] Video: %s\n", videoActivo ? "ON" : "OFF"); }
+#endif
   else {
     Serial.print("[WS] Comando desconocido: ");
     Serial.println(cmd);
@@ -220,14 +227,18 @@ void loop()
   webSocket.loop();
 
 #if WS_ENVIAR_VIDEO
-  // Video: un frame JPEG cada ~500 ms hacia el servidor
-  if (webSocket.isConnected() && millis() - lastFrame >= 500) {
+  // Video: envia un frame JPEG binario cada WS_VIDEO_INTERVALO ms
+  if (videoActivo && webSocket.isConnected() && millis() - lastFrame >= WS_VIDEO_INTERVALO) {
     lastFrame = millis();
     camera_fb_t* fb = esp_camera_fb_get();
-    if (fb) {
-      webSocket.sendBIN(fb->buf, fb->len);
-      esp_camera_fb_return(fb);
+    if (fb && fb->len > 0) {
+      bool ok = webSocket.sendBIN(fb->buf, fb->len);
+      static uint32_t cuentaFrames = 0;
+      if ((++cuentaFrames % 10) == 0) {
+        Serial.printf("[VIDEO] frame %uB (ok=%d), heap=%u\n", (unsigned)fb->len, ok, ESP.getFreeHeap());
+      }
     }
+    if (fb) esp_camera_fb_return(fb);
   }
 #endif
 }

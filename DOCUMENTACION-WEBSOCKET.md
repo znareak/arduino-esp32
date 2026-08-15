@@ -48,15 +48,15 @@ Al conectarse (y cada vez que reconecta), el carrito envía **inmediatamente**:
 
 ## 3. Mensajes Carrito → Backend
 
-| Tipo             | Formato                             | Frecuencia                              |
-| ---------------- | ----------------------------------- | --------------------------------------- |
-| Registro         | `{"tipo":"hola","nombre":"carro1"}` | Al conectar/reconectar                  |
-| Video (opcional) | frames JPEG binarios                | **Desactivado** (`WS_ENVIAR_VIDEO = 0`) |
+| Tipo     | Formato                             | Frecuencia                                   |
+| -------- | ----------------------------------- | -------------------------------------------- |
+| Registro | `{"tipo":"hola","nombre":"carro1"}` | Al conectar/reconectar                       |
+| Video    | frames **binarios** JPEG (320x240)  | ~2 fps (cada 500 ms) mientras esté conectado |
 
 Notas:
 
 - El carrito **no envía telemetría**: no tiene sensores de distancia ni proximidad.
-- El backend solo recibirá el registro y, si se activa, frames de video.
+- Frames de **texto** = JSON. Frames **binarios** = JPEG de la cámara (ver sección 7).
 
 ---
 
@@ -66,15 +66,16 @@ Deben enviarse como **frames de texto** con JSON válido (`ws.send(string)`). Lo
 
 ### 4.1 Comandos principales (`cmd`)
 
-| Comando         | JSON                            | Efecto                              |
-| --------------- | ------------------------------- | ----------------------------------- |
-| Avanzar         | `{"cmd":"adelante"}`            | Avanza                              |
-| Retroceder      | `{"cmd":"atras"}`               | Retrocede                           |
-| Girar izquierda | `{"cmd":"izquierda"}`           | Giro en sitio a la izquierda        |
-| Girar derecha   | `{"cmd":"derecha"}`             | Giro en sitio a la derecha          |
-| Parar           | `{"cmd":"parar"}`               | Frena los dos motores               |
-| Velocidad       | `{"cmd":"velocidad","val":200}` | Ajusta velocidad PWM, `val` = 0–255 |
-| Luz LED         | `{"cmd":"luz","val":255}`       | LED pin 4 por PWM, `val` = 0–255    |
+| Comando         | JSON                            | Efecto                                         |
+| --------------- | ------------------------------- | ---------------------------------------------- |
+| Avanzar         | `{"cmd":"adelante"}`            | Avanza                                         |
+| Retroceder      | `{"cmd":"atras"}`               | Retrocede                                      |
+| Girar izquierda | `{"cmd":"izquierda"}`           | Giro en sitio a la izquierda                   |
+| Girar derecha   | `{"cmd":"derecha"}`             | Giro en sitio a la derecha                     |
+| Parar           | `{"cmd":"parar"}`               | Frena los dos motores                          |
+| Velocidad       | `{"cmd":"velocidad","val":200}` | Ajusta velocidad PWM, `val` = 0–255            |
+| Luz LED         | `{"cmd":"luz","val":255}`       | LED pin 4 por PWM, `val` = 0–255               |
+| Video           | `{"cmd":"video","val":1}`       | Activa (1) o detiene (0) el streaming de video |
 
 ### 4.2 Formato alternativo (`var`/`val`)
 
@@ -129,8 +130,54 @@ El firmware también acepta este formato alternativo, útil si el frontend ya lo
 
 ---
 
-## 7. Notas adicionales
+## 7. Video por WebSocket (frames binarios JPEG)
+
+El carrito envía un frame JPEG por WebSocket cada ~500 ms (2 fps) mientras está conectado. Los frames van en **frames binarios** (no JSON):
+
+- **Frames de texto** → JSON (saludo).
+- **Frames binarios** → imagen JPEG (320x240 QVGA) lista para mostrar.
+
+### Cómo lo recibe el backend (Node + ws)
+
+```js
+ws.on("message", (data, isBinary) => {
+  if (isBinary) {
+    // data es un Buffer con el JPEG completo
+    // opcion 1: reenviarlo tal cual a los frontends suscritos
+    frontends.forEach((f) => f.send(data));
+    // opcion 2: guardar el ultimo frame
+    ultimoFrame = data;
+  } else {
+    const msg = JSON.parse(data.toString());
+    // ... manejar {"tipo":"hola","nombre":"carro1"} ...
+  }
+});
+```
+
+### Cómo lo muestra el frontend
+
+```js
+ws.binaryType = "arraybuffer";
+ws.onmessage = (e) => {
+  if (e.data instanceof ArrayBuffer) {
+    const blob = new Blob([e.data], { type: "image/jpeg" });
+    document.getElementById("cam").src = URL.createObjectURL(blob);
+  } else {
+    // mensaje de texto (JSON)
+  }
+};
+```
+
+### Control del video
+
+- `{"cmd":"video","val":1}` → activa el streaming.
+- `{"cmd":"video","val":0}` → lo detiene.
+- Al desconectarse, el carrito deja de enviar frames automáticamente.
+
+---
+
+## 8. Notas adicionales
 
 - Firmware: `ESP32CAM_L298N_WebcarritounexpoG.ino` + `CameraWebServer.cpp` (sin servidor web local; `app_httpd.cpp` fue eliminado).
-- El envío de video por WebSocket está desactivado en el firmware (`WS_ENVIAR_VIDEO 0`). Si se activa, llegarían frames JPEG binarios cada ~500 ms; el backend debe estar preparado para ignorarlos o enrutarlos aparte.
+- El envío de video por WebSocket está activado (`WS_ENVIAR_VIDEO 1`): frames JPEG binarios (320x240) cada ~500 ms. El backend debe distinguir frames binarios (video) de texto (JSON).
 - Si el carrito no aparece conectado, verificar que en su monitor serial diga `WiFi OK` (conectado a la red WiFi de casa) y `[WS] Conectado al servidor`.
