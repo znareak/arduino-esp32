@@ -5,6 +5,8 @@
 #include <ArduinoJson.h>
 #include "soc/soc.h"
 #include "soc/rtc_cntl_reg.h"
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
 
 #define CAMERA_MODEL_AI_THINKER
 
@@ -18,9 +20,9 @@ const char* WS_HOST = "arduino.libardo-apps.es";
 const uint16_t WS_PORT = 443;   // puerto TLS estandar de wss:// (el backend Node corre en 3000 detras del proxy)
 const char* WS_PATH = "/";
 
-// 1 = enviar frames de la camara por WebSocket (~2 fps, consume RAM/CPU)
+// 1 = enviar frames de la camara por WebSocket (captura en nucleo 0, envio en nucleo 1)
 #define WS_ENVIAR_VIDEO 1
-#define WS_VIDEO_INTERVALO 500   // ms entre frames de video
+#define WS_VIDEO_FPS 10   // fps objetivo (5-15 es realista con TLS en ESP32-CAM; 30 fps no es viable)
 
 WebSocketsClient webSocket;
 // =================================================================
@@ -35,8 +37,12 @@ int ENR = 2;
 int ENL = 12;
 
 int speed = 255;          // velocidad PWM global (0-255)
+volatile bool wsConectado = false;   // estado del socket (actualizado por los eventos WS)
 #if WS_ENVIAR_VIDEO
-bool videoActivo = true;  // streaming de video por WS (se controla con {"cmd":"video","val":0|1})
+volatile bool videoActivo = true;    // streaming de video ({"cmd":"video","val":0|1})
+portMUX_TYPE videoMux = portMUX_INITIALIZER_UNLOCKED;
+volatile camera_fb_t* frameListo = NULL;   // ultimo frame capturado, pendiente de envio
+TaskHandle_t videoTaskHandle = NULL;
 #endif
 
 void CameraWebServer_init();   // definida en CameraWebServer.cpp (solo camara + WiFi)
@@ -51,6 +57,26 @@ void WheelAct(int speed_R, int speed_L, int nLf, int nLb, int nRf, int nRb)
   digitalWrite(gpRf, nRf);
   digitalWrite(gpRb, nRb);
 }
+
+#if WS_ENVIAR_VIDEO
+// Tarea del NUCLEO 0: captura la camara al ritmo de WS_VIDEO_FPS y deja el frame listo.
+// El envio lo hace el loop() en el NUCLEO 1 (unico que toca el socket WebSocket).
+void tareaVideo(void* param) {
+  while (true) {
+    if (videoActivo && wsConectado) {
+      camera_fb_t* fb = esp_camera_fb_get();
+      if (fb) {
+        taskENTER_CRITICAL(&videoMux);
+        camera_fb_t* viejo = (camera_fb_t*)frameListo;
+        frameListo = fb;
+        taskEXIT_CRITICAL(&videoMux);
+        if (viejo) esp_camera_fb_return(viejo);  // descartar frame no enviado (evita backlog y lag)
+      }
+    }
+    vTaskDelay(pdMS_TO_TICKS(1000 / WS_VIDEO_FPS));
+  }
+}
+#endif
 
 // ============== FUNCIONES WEBSOCKET ==============
 void enviarSaludo() {
@@ -104,6 +130,7 @@ void procesarComandoWS(char* payload, size_t length) {
 void webSocketEvent(WStype_t type, uint8_t* payload, size_t length) {
   switch (type) {
     case WStype_ERROR:
+      wsConectado = false;
       Serial.print("[WS] Error de conexion");
       if (payload && length) {
         Serial.print(": ");
@@ -112,10 +139,12 @@ void webSocketEvent(WStype_t type, uint8_t* payload, size_t length) {
       Serial.println(" (reintentando en 5s...)");
       break;
     case WStype_DISCONNECTED:
+      wsConectado = false;
       Serial.println("[WS] Desconectado del servidor (reintentando en 5s...)");
       WheelAct(0, 0, 0, 0, 0, 0);   // seguridad: frenar al perder conexion
       break;
     case WStype_CONNECTED:
+      wsConectado = true;
       Serial.println("[WS] Conectado correctamente al servidor");
       enviarSaludo();
       break;
@@ -215,27 +244,33 @@ void setup()
   webSocket.onEvent(webSocketEvent);
   webSocket.setReconnectInterval(5000);   // reintenta cada 5 s
   webSocket.enableHeartbeat(15000, 3000, 2);
+
+#if WS_ENVIAR_VIDEO
+  // NUCLEO 0: captura de camara | NUCLEO 1 (loop): WebSocket, comandos y envio
+  xTaskCreatePinnedToCore(tareaVideo, "tareaVideo", 4096, NULL, 1, &videoTaskHandle, 0);
+  Serial.println("[SETUP] Tarea de captura de video en el nucleo 0");
+#endif
+
   Serial.println("[SETUP] Listo. Entrando al loop principal...");
 }
 
-#if WS_ENVIAR_VIDEO
-unsigned long lastFrame = 0;
-#endif
-
 void loop() 
 {
+  // 1) Atender el WebSocket SIEMPRE primero: comandos, heartbeats y reconexion (nucleo 1)
   webSocket.loop();
 
 #if WS_ENVIAR_VIDEO
-  // Video: envia un frame JPEG binario cada WS_VIDEO_INTERVALO ms
-  if (videoActivo && webSocket.isConnected() && millis() - lastFrame >= WS_VIDEO_INTERVALO) {
-    lastFrame = millis();
-    camera_fb_t* fb = esp_camera_fb_get();
+  // 2) Enviar el ultimo frame capturado por la tarea del nucleo 0 (uno por iteracion, sin backlog)
+  if (frameListo) {
+    taskENTER_CRITICAL(&videoMux);
+    camera_fb_t* fb = (camera_fb_t*)frameListo;
+    frameListo = NULL;
+    taskEXIT_CRITICAL(&videoMux);
     if (fb && fb->len > 0) {
-      bool ok = webSocket.sendBIN(fb->buf, fb->len);
+      webSocket.sendBIN(fb->buf, fb->len);
       static uint32_t cuentaFrames = 0;
-      if ((++cuentaFrames % 10) == 0) {
-        Serial.printf("[VIDEO] frame %uB (ok=%d), heap=%u\n", (unsigned)fb->len, ok, ESP.getFreeHeap());
+      if ((++cuentaFrames % 50) == 0) {
+        Serial.printf("[VIDEO] frame %uB, heap=%u\n", (unsigned)fb->len, ESP.getFreeHeap());
       }
     }
     if (fb) esp_camera_fb_return(fb);

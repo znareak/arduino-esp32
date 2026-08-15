@@ -48,10 +48,10 @@ Al conectarse (y cada vez que reconecta), el carrito envía **inmediatamente**:
 
 ## 3. Mensajes Carrito → Backend
 
-| Tipo     | Formato                             | Frecuencia                                   |
-| -------- | ----------------------------------- | -------------------------------------------- |
-| Registro | `{"tipo":"hola","nombre":"carro1"}` | Al conectar/reconectar                       |
-| Video    | frames **binarios** JPEG (320x240)  | ~2 fps (cada 500 ms) mientras esté conectado |
+| Tipo     | Formato                             | Frecuencia                                       |
+| -------- | ----------------------------------- | ------------------------------------------------ |
+| Registro | `{"tipo":"hola","nombre":"carro1"}` | Al conectar/reconectar                           |
+| Video    | frames **binarios** JPEG (320x240)  | ~10 fps (captura en nucleo 0, envio en nucleo 1) |
 
 Notas:
 
@@ -132,10 +132,18 @@ El firmware también acepta este formato alternativo, útil si el frontend ya lo
 
 ## 7. Video por WebSocket (frames binarios JPEG)
 
-El carrito envía un frame JPEG por WebSocket cada ~500 ms (2 fps) mientras está conectado. Los frames van en **frames binarios** (no JSON):
+El carrito envía frames JPEG por WebSocket a ~10 fps (configurable con `WS_VIDEO_FPS`) mientras está conectado. Los frames van en **frames binarios** (no JSON):
 
 - **Frames de texto** → JSON (saludo).
 - **Frames binarios** → imagen JPEG (320x240 QVGA) lista para mostrar.
+
+Arquitectura de doble núcleo del firmware:
+
+- **Núcleo 0**: tarea FreeRTOS que captura la cámara al ritmo fijado y deja el último frame listo.
+- **Núcleo 1** (loop de Arduino): atiende el WebSocket (comandos, heartbeats) y envía un frame por iteración.
+- Si el envío va más lento que la captura, los frames viejos se **descartan** (solo se envía el más reciente): no hay backlog ni lag acumulado.
+
+> Nota: 30 fps no es viable en un ESP32-CAM por WebSocket TLS (limitación de ancho de banda y cifrado). Con `WS_VIDEO_FPS 10` y calidad JPEG 15 se consigue fluidez sin penalizar los comandos.
 
 ### Cómo lo recibe el backend (Node + ws)
 
@@ -179,5 +187,5 @@ ws.onmessage = (e) => {
 ## 8. Notas adicionales
 
 - Firmware: `ESP32CAM_L298N_WebcarritounexpoG.ino` + `CameraWebServer.cpp` (sin servidor web local; `app_httpd.cpp` fue eliminado).
-- El envío de video por WebSocket está activado (`WS_ENVIAR_VIDEO 1`): frames JPEG binarios (320x240) cada ~500 ms. El backend debe distinguir frames binarios (video) de texto (JSON).
+- El envío de video por WebSocket está activado (`WS_ENVIAR_VIDEO 1`): frames JPEG binarios (320x240) a ~10 fps. El backend debe distinguir frames binarios (video) de texto (JSON).
 - Si el carrito no aparece conectado, verificar que en su monitor serial diga `WiFi OK` (conectado a la red WiFi de casa) y `[WS] Conectado al servidor`.
