@@ -9,7 +9,6 @@
 
 // ============== CONFIGURACION INTERNET / WEBSOCKET ==============
 // WiFi de tu casa: el carrito se conecta a esta red para salir a Internet
-// (la red propia "UNEXPOROBOTESPCAM" sigue activa en modo AP+STA)
 const char* WIFI_STA_SSID = "Gabriel";
 const char* WIFI_STA_PASS = "pianoigbt";
 
@@ -64,6 +63,8 @@ void enviarSaludo() {
 }
 
 void procesarComandoWS(char* payload, size_t length) {
+  Serial.printf("[WS] Comando recibido: %s\n", payload);
+
   JsonDocument doc;
   DeserializationError err = deserializeJson(doc, payload, length);
   if (err) {
@@ -90,16 +91,17 @@ void procesarComandoWS(char* payload, size_t length) {
   }
 
   if      (strcmp(cmd, "adelante")  == 0) {
+    Serial.println("[WS] Ejecutando: ADELANTE (freno automatico <15cm)");
     int dist = leerDistancia();
     if (dist > 15) WheelAct(speed, speed, 1, 0, 1, 0);  // frena si hay obstaculo
     else           WheelAct(0, 0, 0, 0, 0, 0);
   }
-  else if (strcmp(cmd, "atras")     == 0) WheelAct(speed, speed, 0, 1, 0, 1);
-  else if (strcmp(cmd, "izquierda") == 0) WheelAct(speed, speed, 1, 0, 0, 1);
-  else if (strcmp(cmd, "derecha")   == 0) WheelAct(speed, speed, 0, 1, 1, 0);
-  else if (strcmp(cmd, "parar")     == 0) WheelAct(0, 0, 0, 0, 0, 0);
-  else if (strcmp(cmd, "velocidad") == 0) speed = constrain(val, 0, 255);
-  else if (strcmp(cmd, "luz")       == 0) ledcWrite(gpLed, constrain(val, 0, 255));
+  else if (strcmp(cmd, "atras")     == 0) { Serial.println("[WS] Ejecutando: ATRAS");     WheelAct(speed, speed, 0, 1, 0, 1); }
+  else if (strcmp(cmd, "izquierda") == 0) { Serial.println("[WS] Ejecutando: IZQUIERDA"); WheelAct(speed, speed, 1, 0, 0, 1); }
+  else if (strcmp(cmd, "derecha")   == 0) { Serial.println("[WS] Ejecutando: DERECHA");   WheelAct(speed, speed, 0, 1, 1, 0); }
+  else if (strcmp(cmd, "parar")     == 0) { Serial.println("[WS] Ejecutando: PARAR");     WheelAct(0, 0, 0, 0, 0, 0); }
+  else if (strcmp(cmd, "velocidad") == 0) { speed = constrain(val, 0, 255); Serial.printf("[WS] Velocidad ajustada a %d\n", speed); }
+  else if (strcmp(cmd, "luz")       == 0) { ledcWrite(gpLed, constrain(val, 0, 255)); Serial.printf("[WS] Luz LED: %d\n", constrain(val, 0, 255)); }
   else {
     Serial.print("[WS] Comando desconocido: ");
     Serial.println(cmd);
@@ -108,12 +110,20 @@ void procesarComandoWS(char* payload, size_t length) {
 
 void webSocketEvent(WStype_t type, uint8_t* payload, size_t length) {
   switch (type) {
+    case WStype_ERROR:
+      Serial.print("[WS] Error de conexion");
+      if (payload && length) {
+        Serial.print(": ");
+        Serial.print((const char*)payload);
+      }
+      Serial.println(" (reintentando en 5s...)");
+      break;
     case WStype_DISCONNECTED:
-      Serial.println("[WS] Desconectado del servidor");
+      Serial.println("[WS] Desconectado del servidor (reintentando en 5s...)");
       WheelAct(0, 0, 0, 0, 0, 0);   // seguridad: frenar al perder conexion
       break;
     case WStype_CONNECTED:
-      Serial.println("[WS] Conectado al servidor");
+      Serial.println("[WS] Conectado correctamente al servidor");
       enviarSaludo();
       break;
     case WStype_TEXT:
@@ -179,6 +189,7 @@ void setup()
   digitalWrite(TRIG_PIN, LOW);
 
   // ---- Cliente WebSocket hacia Internet ----
+  Serial.printf("[WS] Intentando conectar a wss://%s:%d%s ...\n", WS_HOST, WS_PORT, WS_PATH);
   webSocket.beginSSL(WS_HOST, WS_PORT, WS_PATH);
   // Sin fingerprint/CA, la libreria WebSockets ya desactiva la verificacion del certificado TLS
   webSocket.onEvent(webSocketEvent);

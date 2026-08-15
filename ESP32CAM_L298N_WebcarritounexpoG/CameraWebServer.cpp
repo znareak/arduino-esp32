@@ -2,10 +2,6 @@
 #include "esp_camera.h"
 #include <WiFi.h>
 
-const char *ssid = "UNEXPOROBOTESPCAM";
-const char *password = "12345678";
-String wifi_name;
-
 // Definidas en el archivo .ino (configuracion centralizada)
 extern const char* WIFI_STA_SSID;
 extern const char* WIFI_STA_PASS;
@@ -94,8 +90,7 @@ void CameraWebServer_init()
   s->set_hmirror(s, 1); //图片方向设置（左右）
 
   WiFi.setTxPower(WIFI_POWER_19_5dBm);
-  WiFi.mode(WIFI_AP_STA);   // red propia + conexion a Internet
-  WiFi.softAP(ssid, password, 5);
+  WiFi.mode(WIFI_STA);   // solo conexion a la red WiFi de casa
   WiFi.begin(WIFI_STA_SSID, WIFI_STA_PASS);
 
   Serial.print("Conectando a WiFi");
@@ -111,11 +106,4 @@ void CameraWebServer_init()
     Serial.println(WiFi.localIP());
   }
   startCameraServer();
-  // WiFi.softAP(ssid, password);
-  IPAddress miIP = WiFi.softAPIP();
-  Serial.print("AP IP address: ");
-  Serial.println(miIP); //probar 192.168.4.1
-
-
-
 }
