@@ -10,8 +10,8 @@
 // ============== CONFIGURACION INTERNET / WEBSOCKET ==============
 // WiFi de tu casa: el carrito se conecta a esta red para salir a Internet
 // (la red propia "UNEXPOROBOTESPCAM" sigue activa en modo AP+STA)
-const char* WIFI_STA_SSID = "TU_WIFI";
-const char* WIFI_STA_PASS = "TU_CLAVE";
+const char* WIFI_STA_SSID = "Gabriel";
+const char* WIFI_STA_PASS = "pianoigbt";
 
 // Servidor WebSocket en Internet
 const char* WS_HOST = "arduino.libardo-apps.es";
@@ -51,7 +51,7 @@ void enviarSaludo() {
 }
 
 void procesarComandoWS(char* payload, size_t length) {
-  StaticJsonDocument<256> doc;
+  JsonDocument doc;
   DeserializationError err = deserializeJson(doc, payload, length);
   if (err) {
     Serial.print("[WS] JSON invalido: ");
