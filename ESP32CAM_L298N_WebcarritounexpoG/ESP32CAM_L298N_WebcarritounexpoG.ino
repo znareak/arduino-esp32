@@ -178,7 +178,7 @@ void setup()
   } else {
     Serial.println("[WS] ERROR: no se pudo resolver el DNS del servidor");
   }
-  Serial.printf("[WS] Heap libre: %u bytes\n", ESP.getFreeHeap());
+  Serial.printf("[WS] Heap libre: %u bytes (max bloque contiguo: %u)\n", ESP.getFreeHeap(), ESP.getMaxAllocHeap());
 
   // Prueba de conectividad TCP pura al puerto 443 (sin TLS)
   WiFiClient tcpTest;

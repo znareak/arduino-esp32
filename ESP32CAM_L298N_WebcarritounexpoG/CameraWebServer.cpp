@@ -45,7 +45,7 @@ void CameraWebServer_init()
   config.pin_pwdn = PWDN_GPIO_NUM;
   config.pin_reset = RESET_GPIO_NUM;
   config.xclk_freq_hz = 20000000;
-  config.frame_size = FRAMESIZE_UXGA;
+  config.frame_size = FRAMESIZE_QVGA;   // resolucion baja desde el inicio (ahorra memoria)
   config.pixel_format = PIXFORMAT_JPEG; // for streaming
   //config.pixel_format = PIXFORMAT_RGB565; // for face detection/recognition
   config.grab_mode = CAMERA_GRAB_WHEN_EMPTY;
@@ -58,7 +58,7 @@ void CameraWebServer_init()
   if(config.pixel_format == PIXFORMAT_JPEG){
     if(psramFound()){
       config.jpeg_quality = 10;
-      config.fb_count = 2;
+      config.fb_count = 1;   // un solo buffer para dejar RAM al TLS
       config.grab_mode = CAMERA_GRAB_LATEST;
     } else {
       // Limit the frame size when PSRAM is not available
