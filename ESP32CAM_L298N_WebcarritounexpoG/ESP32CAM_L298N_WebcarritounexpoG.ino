@@ -169,6 +169,25 @@ void setup()
     delay(50);
   }
 
+  // ---- Diagnostico de red antes de conectar ----
+  IPAddress ipServidor;
+  Serial.printf("[WS] Resolviendo DNS de %s...\n", WS_HOST);
+  if (WiFi.hostByName(WS_HOST, ipServidor)) {
+    Serial.printf("[WS] DNS OK: %s -> %s\n", WS_HOST, ipServidor.toString().c_str());
+  } else {
+    Serial.println("[WS] ERROR: no se pudo resolver el DNS del servidor");
+  }
+  Serial.printf("[WS] Heap libre: %u bytes\n", ESP.getFreeHeap());
+
+  // Prueba de conectividad TCP pura al puerto 443 (sin TLS)
+  WiFiClient tcpTest;
+  if (tcpTest.connect(WS_HOST, WS_PORT, 5000)) {
+    Serial.println("[WS] TCP puerto 443: OK (si falla la conexion, es tema TLS/WebSocket)");
+    tcpTest.stop();
+  } else {
+    Serial.println("[WS] TCP puerto 443: FALLO (servidor inalcanzable o puerto cerrado)");
+  }
+
   // ---- Cliente WebSocket hacia Internet ----
   Serial.printf("[WS] Intentando conectar a wss://%s:%d%s ...\n", WS_HOST, WS_PORT, WS_PATH);
   webSocket.beginSSL(WS_HOST, WS_PORT, WS_PATH);
