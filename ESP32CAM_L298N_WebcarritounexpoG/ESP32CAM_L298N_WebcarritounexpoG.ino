@@ -9,8 +9,8 @@
 
 // ============== CONFIGURACION INTERNET / WEBSOCKET ==============
 // WiFi de tu casa: el carrito se conecta a esta red para salir a Internet
-const char* WIFI_STA_SSID = "Gabriel";
-const char* WIFI_STA_PASS = "pianoigbt";
+const char* WIFI_STA_SSID = "Ruiz";
+const char* WIFI_STA_PASS = "rrr1945cantor02";
 
 // Servidor WebSocket en Internet
 const char* WS_HOST = "arduino.libardo-apps.es";
