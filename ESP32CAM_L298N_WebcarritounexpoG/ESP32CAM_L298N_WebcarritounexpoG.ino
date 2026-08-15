@@ -1,5 +1,6 @@
 #include "esp_camera.h"
 #include <WiFi.h>
+#include <WiFiClientSecure.h>
 #include <WebSocketsClient.h>
 #include <ArduinoJson.h>
 #include "soc/soc.h"
@@ -186,6 +187,18 @@ void setup()
     tcpTest.stop();
   } else {
     Serial.println("[WS] TCP puerto 443: FALLO (servidor inalcanzable o puerto cerrado)");
+  }
+
+  // Prueba del handshake TLS con detalle de error
+  WiFiClientSecure tlsTest;
+  tlsTest.setInsecure();
+  if (tlsTest.connect(WS_HOST, WS_PORT, 10000)) {
+    Serial.println("[WS] TLS handshake: OK");
+    tlsTest.stop();
+  } else {
+    char errBuf[128] = {0};
+    int err = tlsTest.lastError(errBuf, sizeof(errBuf));
+    Serial.printf("[WS] TLS handshake: FALLO (0x%X) %s\n", err, errBuf);
   }
 
   // ---- Cliente WebSocket hacia Internet ----
