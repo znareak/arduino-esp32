@@ -71,6 +71,9 @@ void tareaVideo(void* param) {
         frameListo = fb;
         taskEXIT_CRITICAL(&videoMux);
         if (viejo) esp_camera_fb_return(viejo);  // descartar frame no enviado (evita backlog y lag)
+      } else {
+        static uint32_t fallos = 0;
+        if ((++fallos % 50) == 0) Serial.println("[VIDEO] fb_get devolvio NULL (camara sin frames libres)");
       }
     }
     vTaskDelay(pdMS_TO_TICKS(1000 / WS_VIDEO_FPS));
@@ -267,10 +270,11 @@ void loop()
     frameListo = NULL;
     taskEXIT_CRITICAL(&videoMux);
     if (fb && fb->len > 0) {
+      uint32_t t0 = millis();
       webSocket.sendBIN(fb->buf, fb->len);
       static uint32_t cuentaFrames = 0;
       if ((++cuentaFrames % 50) == 0) {
-        Serial.printf("[VIDEO] frame %uB, heap=%u\n", (unsigned)fb->len, ESP.getFreeHeap());
+        Serial.printf("[VIDEO] frame %uB, envio %ums, heap=%u\n", (unsigned)fb->len, (unsigned)(millis() - t0), ESP.getFreeHeap());
       }
     }
     if (fb) esp_camera_fb_return(fb);
