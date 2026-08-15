@@ -23,39 +23,29 @@ const char* WS_PATH = "/";
 WebSocketsClient webSocket;
 // =================================================================
 
-// Definidas en app_httpd.cpp (deben declararse ANTES de usarse en este archivo)
-extern int speed;
-void WheelAct(int speed_R, int speed_L, int nLf, int nLb, int nRf, int nRb);
+// ============== PINES ==============
+int gpLb = 14; // Left 1
+int gpLf = 13; // Left 2
+int gpRb = 33; // Right 1
+int gpRf = 15; // Right 2
+int gpLed = 4; // Light
+int ENR = 2;
+int ENL = 12;
 
-// Pines globales (definidos aqui, usados tambien por app_httpd.cpp)
-extern int gpLb = 14; // Left 1
-extern int gpLf = 13; // Left 2
-extern int gpRb = 33; // Right 1
-extern int gpRf = 15; // Right 2
-extern int gpLed = 4; // Light
-extern int ENR = 2;
-extern int ENL = 12;
+int speed = 255;          // velocidad PWM global (0-255)
 
-#define LED   4
-#define RXD2 14
-#define TXD2 13
-#define TRIG_PIN 1   // Disparo (Salida)
-#define ECHO_PIN 16  // Eco (Entrada) - Ahora seguro sin PSRAM
+void CameraWebServer_init();   // definida en CameraWebServer.cpp (solo camara + WiFi)
 
-int distanciaActual = 0; // Variable global para guardar la lectura
-
-// 2. Función para medir 
-int leerDistancia() {
-  digitalWrite(TRIG_PIN, LOW);
-  delayMicroseconds(2);
-  digitalWrite(TRIG_PIN, HIGH);
-  delayMicroseconds(10);
-  digitalWrite(TRIG_PIN, LOW);
-  long tiempo = pulseIn(ECHO_PIN, HIGH, 10000); // 20ms de espera
-  int d = tiempo * 0.034 / 2;
-  return (d <= 0) ? 400 : d; 
+// ============== MOTORES ==============
+void WheelAct(int speed_R, int speed_L, int nLf, int nLb, int nRf, int nRb)
+{
+  ledcWrite(ENR, speed_R);
+  ledcWrite(ENL, speed_L);
+  digitalWrite(gpLf, nLf);
+  digitalWrite(gpLb, nLb);
+  digitalWrite(gpRf, nRf);
+  digitalWrite(gpRb, nRb);
 }
-void CameraWebServer_init();
 
 // ============== FUNCIONES WEBSOCKET ==============
 void enviarSaludo() {
@@ -76,7 +66,7 @@ void procesarComandoWS(char* payload, size_t length) {
   const char* cmd = doc["cmd"] | "";
   int val = doc["val"] | 0;
 
-  // Compatibilidad con el formato de la web local (?var=car&val=1)
+  // Compatibilidad con el formato alternativo (?var=car&val=1)
   if (strcmp(cmd, "") == 0 && doc.containsKey("var")) {
     const char* var = doc["var"] | "";
     if (strcmp(var, "car") == 0) {
@@ -90,12 +80,7 @@ void procesarComandoWS(char* payload, size_t length) {
     else if (strcmp(var, "flash") == 0) cmd = "luz";
   }
 
-  if      (strcmp(cmd, "adelante")  == 0) {
-    Serial.println("[WS] Ejecutando: ADELANTE (freno automatico <15cm)");
-    int dist = leerDistancia();
-    if (dist > 15) WheelAct(speed, speed, 1, 0, 1, 0);  // frena si hay obstaculo
-    else           WheelAct(0, 0, 0, 0, 0, 0);
-  }
+  if      (strcmp(cmd, "adelante")  == 0) { Serial.println("[WS] Ejecutando: ADELANTE"); WheelAct(speed, speed, 1, 0, 1, 0); }
   else if (strcmp(cmd, "atras")     == 0) { Serial.println("[WS] Ejecutando: ATRAS");     WheelAct(speed, speed, 0, 1, 0, 1); }
   else if (strcmp(cmd, "izquierda") == 0) { Serial.println("[WS] Ejecutando: IZQUIERDA"); WheelAct(speed, speed, 1, 0, 0, 1); }
   else if (strcmp(cmd, "derecha")   == 0) { Serial.println("[WS] Ejecutando: DERECHA");   WheelAct(speed, speed, 0, 1, 1, 0); }
@@ -135,9 +120,6 @@ void webSocketEvent(WStype_t type, uint8_t* payload, size_t length) {
 }
 // ==================================================
 
-WiFiServer server(100);
-
-
 void initMotors()
 {
   pinMode(gpLb, OUTPUT); //Left Backward
@@ -149,11 +131,15 @@ void initMotors()
   pinMode(ENL, OUTPUT);
 
   // API nueva de esp32 core 3.x: ledcAttachChannel(pin, freq, resolucion, canal)
-  ledcAttachChannel(ENR, 5000, 8, 2);   // motor derecho (canal 2)
-  ledcAttachChannel(ENL, 5000, 8, 12);  // motor izquierdo (canal 12)
+  // (el canal 0 lo usa la camara para su reloj XCLK)
+  ledcAttachChannel(ENR, 5000, 8, 2);    // motor derecho (canal 2)
+  ledcAttachChannel(ENL, 5000, 8, 12);   // motor izquierdo (canal 12)
+  ledcAttachChannel(gpLed, 5000, 8, 7);  // LED (canal 7)
   ledcWrite(ENR, 0);
   ledcWrite(ENL, 0);
+  ledcWrite(gpLed, 0);
   digitalWrite(gpLf, LOW);
+  digitalWrite(gpLb, LOW);
   digitalWrite(gpRb, LOW);
   digitalWrite(gpRf, LOW);
 }
@@ -163,19 +149,17 @@ void setup()
   WRITE_PERI_REG(RTC_CNTL_BROWN_OUT_REG, 0); // prevent brownouts by silencing them
 
   Serial.begin(115200);
-  Serial2.begin(115200, SERIAL_8N1, RXD2, TXD2);
   Serial.setDebugOutput(true);
   Serial.println();
-    
+  Serial.println("=== FIRMWARE CARRITO v5 (WS + camara, sin sensores) ===");
+
+  // Camara + conexion WiFi a la red de casa
   CameraWebServer_init(); 
-  
+  Serial.println("[SETUP] Camara y WiFi OK");
 
-  // Remote Control Car
+  // Motores + LED
   initMotors();
-
-  ledcAttachChannel(gpLed, 5000, 8, 7);  //pin4 is LED (canal 7)
-
-  server.begin();
+  Serial.println("[SETUP] Motores y LED OK");
 
   for (int i = 0; i < 5; i++) 
   {
@@ -184,9 +168,6 @@ void setup()
     ledcWrite(gpLed, 0);
     delay(50);
   }
-  pinMode(TRIG_PIN, OUTPUT);
-  pinMode(ECHO_PIN, INPUT);
-  digitalWrite(TRIG_PIN, LOW);
 
   // ---- Cliente WebSocket hacia Internet ----
   Serial.printf("[WS] Intentando conectar a wss://%s:%d%s ...\n", WS_HOST, WS_PORT, WS_PATH);
@@ -195,9 +176,9 @@ void setup()
   webSocket.onEvent(webSocketEvent);
   webSocket.setReconnectInterval(5000);   // reintenta cada 5 s
   webSocket.enableHeartbeat(15000, 3000, 2);
+  Serial.println("[SETUP] Listo. Entrando al loop principal...");
 }
 
-unsigned long lastTele = 0;
 #if WS_ENVIAR_VIDEO
 unsigned long lastFrame = 0;
 #endif
@@ -205,16 +186,6 @@ unsigned long lastFrame = 0;
 void loop() 
 {
   webSocket.loop();
-
-  // Telemetria: distancia cada 1 s
-  if (millis() - lastTele >= 1000) {
-    lastTele = millis();
-    if (webSocket.isConnected()) {
-      char buf[64];
-      snprintf(buf, sizeof(buf), "{\"distancia\":%d}", leerDistancia());
-      webSocket.sendTXT(buf);
-    }
-  }
 
 #if WS_ENVIAR_VIDEO
   // Video: un frame JPEG cada ~500 ms hacia el servidor

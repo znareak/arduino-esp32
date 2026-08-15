@@ -11,12 +11,11 @@ flowchart LR
     F[Frontend (usuario remoto)] -->|comandos| B[Backend Node<br/>puerto 3000]
     B <-->|WebSocket wss://:443| E[ESP32-CAM<br/>CLIENTE WebSocket]
     E --> M[Motores L298N + LED]
-    E --> U[Sensor HC-SR04]
 ```
 
 - El **ESP32 es un cliente WebSocket**, no un servidor. Es él quien inicia la conexión saliente.
 - El backend es quien acepta la conexión, identifica al carro y le reenvía comandos.
-- El carrito se conecta **solo** a la red WiFi de casa (modo STA). Ya no crea red WiFi propia (AP). Su web local queda accesible en la IP que obtenga de la red de casa.
+- El carrito se conecta **solo** a la red WiFi de casa (modo STA). No crea red WiFi propia (AP) ni servidor web local: el control es únicamente por WebSocket.
 
 ### Datos de conexión del carrito
 
@@ -52,14 +51,12 @@ Al conectarse (y cada vez que reconecta), el carrito envía **inmediatamente**:
 | Tipo             | Formato                             | Frecuencia                              |
 | ---------------- | ----------------------------------- | --------------------------------------- |
 | Registro         | `{"tipo":"hola","nombre":"carro1"}` | Al conectar/reconectar                  |
-| Telemetría       | `{"distancia":<int cm>}`            | Cada 1 s (solo si está conectado)       |
 | Video (opcional) | frames JPEG binarios                | **Desactivado** (`WS_ENVIAR_VIDEO = 0`) |
 
 Notas:
 
-- `distancia` es la lectura del sensor ultrasónico HC-SR04 en centímetros.
-- Si no hay eco válido, el firmware reporta `400` (valor centinela = "sin lectura").
-- El backend puede reenviar esta telemetría al frontend que esté suscrito al carro.
+- El carrito **no envía telemetría**: no tiene sensores de distancia ni proximidad.
+- El backend solo recibirá el registro y, si se activa, frames de video.
 
 ---
 
@@ -69,29 +66,29 @@ Deben enviarse como **frames de texto** con JSON válido (`ws.send(string)`). Lo
 
 ### 4.1 Comandos principales (`cmd`)
 
-| Comando         | JSON                            | Efecto                                                 |
-| --------------- | ------------------------------- | ------------------------------------------------------ |
-| Avanzar         | `{"cmd":"adelante"}`            | Avanza, con freno automático si hay obstáculo a <15 cm |
-| Retroceder      | `{"cmd":"atras"}`               | Retrocede (sin freno por sensor)                       |
-| Girar izquierda | `{"cmd":"izquierda"}`           | Giro en sitio a la izquierda                           |
-| Girar derecha   | `{"cmd":"derecha"}`             | Giro en sitio a la derecha                             |
-| Parar           | `{"cmd":"parar"}`               | Frena los dos motores                                  |
-| Velocidad       | `{"cmd":"velocidad","val":200}` | Ajusta velocidad PWM, `val` = 0–255                    |
-| Luz LED         | `{"cmd":"luz","val":255}`       | LED pin 4 por PWM, `val` = 0–255                       |
+| Comando         | JSON                            | Efecto                              |
+| --------------- | ------------------------------- | ----------------------------------- |
+| Avanzar         | `{"cmd":"adelante"}`            | Avanza                              |
+| Retroceder      | `{"cmd":"atras"}`               | Retrocede                           |
+| Girar izquierda | `{"cmd":"izquierda"}`           | Giro en sitio a la izquierda        |
+| Girar derecha   | `{"cmd":"derecha"}`             | Giro en sitio a la derecha          |
+| Parar           | `{"cmd":"parar"}`               | Frena los dos motores               |
+| Velocidad       | `{"cmd":"velocidad","val":200}` | Ajusta velocidad PWM, `val` = 0–255 |
+| Luz LED         | `{"cmd":"luz","val":255}`       | LED pin 4 por PWM, `val` = 0–255    |
 
-### 4.2 Formato compatible con la web local (`var`/`val`)
+### 4.2 Formato alternativo (`var`/`val`)
 
-El firmware también acepta el protocolo de su web local, útil si el frontend ya lo usa:
+El firmware también acepta este formato alternativo, útil si el frontend ya lo usa:
 
-| Variable                  | Valor     | Efecto                          |
-| ------------------------- | --------- | ------------------------------- |
-| `{"var":"car","val":1}`   | 1         | Adelante (con freno por sensor) |
-| `{"var":"car","val":2}`   | 2         | Derecha                         |
-| `{"var":"car","val":3}`   | 3         | Parar                           |
-| `{"var":"car","val":4}`   | 4         | Izquierda                       |
-| `{"var":"car","val":5}`   | 5         | Atrás                           |
-| `{"var":"speed","val":N}` | N (0–255) | Velocidad                       |
-| `{"var":"flash","val":N}` | N (0–255) | Luz LED                         |
+| Variable                  | Valor     | Efecto    |
+| ------------------------- | --------- | --------- |
+| `{"var":"car","val":1}`   | 1         | Adelante  |
+| `{"var":"car","val":2}`   | 2         | Derecha   |
+| `{"var":"car","val":3}`   | 3         | Parar     |
+| `{"var":"car","val":4}`   | 4         | Izquierda |
+| `{"var":"car","val":5}`   | 5         | Atrás     |
+| `{"var":"speed","val":N}` | N (0–255) | Velocidad |
+| `{"var":"flash","val":N}` | N (0–255) | Luz LED   |
 
 ### 4.3 Reglas de parseo
 
@@ -104,7 +101,6 @@ El firmware también acepta el protocolo de su web local, útil si el frontend y
 ## 5. Comportamientos de seguridad y conexión
 
 - **Freno por pérdida de conexión**: si la conexión WebSocket se cae, el carrito frena los motores automáticamente (`WStype_DISCONNECTED` → `parar`).
-- **Freno por obstáculo**: en "adelante", si el sensor mide <15 cm, no avanza (frena solo).
 - **Reconexión automática**: cada 5 s.
 - **Heartbeat**: el cliente envía ping cada 15 s, espera pong 3 s, y se desconecta tras 2 fallos. El backend debe responder los pings normalmente (lo hace `ws` automáticamente).
 
@@ -115,30 +111,26 @@ El firmware también acepta el protocolo de su web local, útil si el frontend y
 - [ ] Acepta conexiones `wss://` en `arduino.libardo-apps.es:443` (proxy → Node :3000).
 - [ ] Al recibir `{"tipo":"hola","nombre":"carro1"}` guarda/actualiza el socket del carro.
 - [ ] Puede enviar frames de texto al socket del carro con los JSON de la sección 4.
-- [ ] Reenvía la telemetría `{"distancia":N}` a los frontends suscritos.
 - [ ] Al reconectarse el carro (socket nuevo), usa el socket actualizado.
-- [ ] Prueba E2E: enviar `{"cmd":"parar"}` y ver en el monitor serial del carrito `Stop`.
+- [ ] Prueba E2E: enviar `{"cmd":"parar"}` y ver en el monitor serial del carrito `[WS] Ejecutando: PARAR`.
 
 ### Pruebas recomendadas (con el carrito conectado al monitor serial 115200)
 
-| Enviar                          | Esperado en el serial del carrito       |
-| ------------------------------- | --------------------------------------- |
-| `{"cmd":"adelante"}`            | avanza (si hay >15 cm libres)           |
-| `{"cmd":"atras"}`               | `Backward`                              |
-| `{"cmd":"parar"}`               | `Stop`                                  |
-| `{"cmd":"izquierda"}`           | `TurnLeft`                              |
-| `{"cmd":"derecha"}`             | `TurnRight`                             |
-| `{"var":"car","val":1}`         | mismo efecto que adelante               |
-| `{"cmd":"velocidad","val":180}` | cambia velocidad (visible en la marcha) |
-| `{"cmd":"luz","val":255}`       | LED encendido                           |
-
-Además, cada segundo debe llegar al backend `{"distancia":<cm>}`.
+| Enviar                          | Esperado en el serial del carrito |
+| ------------------------------- | --------------------------------- |
+| `{"cmd":"adelante"}`            | `[WS] Ejecutando: ADELANTE...`    |
+| `{"cmd":"atras"}`               | `[WS] Ejecutando: ATRAS`          |
+| `{"cmd":"parar"}`               | `[WS] Ejecutando: PARAR`          |
+| `{"cmd":"izquierda"}`           | `[WS] Ejecutando: IZQUIERDA`      |
+| `{"cmd":"derecha"}`             | `[WS] Ejecutando: DERECHA`        |
+| `{"var":"car","val":1}`         | mismo efecto que adelante         |
+| `{"cmd":"velocidad","val":180}` | `[WS] Velocidad ajustada a 180`   |
+| `{"cmd":"luz","val":255}`       | `[WS] Luz LED: 255`               |
 
 ---
 
 ## 7. Notas adicionales
 
-- Firmware: `ESP32CAM_L298N_WebcarritounexpoG.ino` + `app_httpd.cpp` + `CameraWebServer.cpp`.
-- Librerías: `arduinoWebSockets` (cliente) y `ArduinoJson`.
+- Firmware: `ESP32CAM_L298N_WebcarritounexpoG.ino` + `CameraWebServer.cpp` (sin servidor web local; `app_httpd.cpp` fue eliminado).
 - El envío de video por WebSocket está desactivado en el firmware (`WS_ENVIAR_VIDEO 0`). Si se activa, llegarían frames JPEG binarios cada ~500 ms; el backend debe estar preparado para ignorarlos o enrutarlos aparte.
 - Si el carrito no aparece conectado, verificar que en su monitor serial diga `WiFi OK` (conectado a la red WiFi de casa) y `[WS] Conectado al servidor`.

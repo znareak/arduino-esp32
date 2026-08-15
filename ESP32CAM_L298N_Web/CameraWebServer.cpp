@@ -2,9 +2,9 @@
 #include "esp_camera.h"
 #include <WiFi.h>
 
-// Definidas en el archivo .ino (configuracion centralizada)
-extern const char* WIFI_STA_SSID;
-extern const char* WIFI_STA_PASS;
+const char *ssid = "KUONGSHUN-AD174";
+const char *password = "12345678";
+String wifi_name;
 
 #define PWDN_GPIO_NUM     32
 #define RESET_GPIO_NUM    -1
@@ -23,6 +23,7 @@ extern const char* WIFI_STA_PASS;
 #define HREF_GPIO_NUM     23
 #define PCLK_GPIO_NUM     22
 
+void startCameraServer();
 void CameraWebServer_init()
 {
   camera_config_t config;
@@ -89,19 +90,14 @@ void CameraWebServer_init()
   s->set_hmirror(s, 1); //图片方向设置（左右）
 
   WiFi.setTxPower(WIFI_POWER_19_5dBm);
-  WiFi.mode(WIFI_STA);   // solo conexion a la red WiFi de casa
-  WiFi.begin(WIFI_STA_SSID, WIFI_STA_PASS);
+  WiFi.mode(WIFI_AP);
+  WiFi.softAP(ssid, password, 5);
+  startCameraServer();
+  // WiFi.softAP(ssid, password);
+  IPAddress miIP = WiFi.softAPIP();
+  Serial.print("AP IP address: ");
+  Serial.println(miIP); //probar 192.168.4.1
 
-  Serial.print("Conectando a WiFi");
-  int intentos = 0;
-  while (WiFi.status() != WL_CONNECTED && intentos < 20) {  // max ~10 s
-    delay(500);
-    Serial.print(".");
-    intentos++;
-  }
-  Serial.println(WiFi.status() == WL_CONNECTED ? " WiFi OK" : " SIN Internet");
-  if (WiFi.status() == WL_CONNECTED) {
-    Serial.print("IP en Internet: ");
-    Serial.println(WiFi.localIP());
-  }
+
+
 }
